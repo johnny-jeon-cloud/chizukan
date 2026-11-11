@@ -695,7 +695,7 @@ async function boot() {
   NET.ready = false; NET.err = ''; render();
   try {
     ACCT = loadAcct();
-    if (!ACCT) { const j = await api('register'); ACCT = { id: j.id, k: j.k }; saveAcct(); }
+    if (!ACCT) { const j = await api('register'); ACCT = { id: j.id, k: j.k }; saveAcct(); await api('state'); }
     else { const j = await api('state'); if (j.r && 'forfeited' in j.r) setTimeout(() => toast('対戦の途中で中断したため、敗北として記録しました'), 600); }
     NET.ready = true;
   } catch (e) { NET.err = e.code || 'server'; NET.msg = e.message; }

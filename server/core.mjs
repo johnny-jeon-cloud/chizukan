@@ -30,8 +30,9 @@ const emptyTasks = () => ({ opened: 0, battles: 0, c1: false, c2: false, wins: 0
 const emptyCh = day => ({ day, ids: [] });
 
 export function freshState(now) {
-  return normState({ v: 2, packs: CFG.START_PACKS, lastGrant: now, pity: 0, mp: 0, owned: {}, team: [], points: 0, day: jstDay(now),
+  const S = normState({ v: 2, packs: CFG.START_PACKS, lastGrant: now, pity: 0, mp: 0, owned: {}, team: [], points: 0, day: jstDay(now),
     battlesToday: 0, tasks: emptyTasks(), history: [], stats: { packs: 0, w: 0, l: 0, d: 0 }, pending: null });
+  tick(S, now); return S;
 }
 
 // 旧バージョンの状態に新しい項目を補う（読み込み時に毎回呼ぶ）
