@@ -432,6 +432,7 @@ export const ACH = [
   { id: "area_kr", r: { packs: 1 }, t: S => areaDone(S, "韓国") },
   { id: "area_cn", r: { packs: 1 }, t: S => areaDone(S, "中国") },
   { id: "area_tw", r: { packs: 1 }, t: S => areaDone(S, "台湾") },
+  { id: "area_sea", r: { packs: 1 }, t: S => areaDone(S, "東南アジア") },
   { id: "win_1", r: { mp: 3 }, t: S => S.stats.w >= 1 },
   { id: "win_10", r: { packs: 1 }, t: S => S.stats.w >= 10 },
   { id: "win_50", r: { packs: 2 }, t: S => S.stats.w >= 50 },
