@@ -75,6 +75,7 @@ export async function handle(req, deps) {
         const hadPending = !!S.pending && S.pending;
         let opt = {};
         if (p.mode === "boss") opt = { boss: true };
+        else if (p.mode === "prac") opt = { prac: Number(p.lv) };
         else if (p.mode === "ch") {
           const pub = String(p.pub || "");
           if (!/^[0-9a-f]{10}$/.test(pub)) throw new C.GameError("bad_target", "この相手には挑戦できません");
@@ -89,6 +90,7 @@ export async function handle(req, deps) {
       else if (a === "trip") r = C.trip(S, now, rand);
       else if (a === "name") r = C.setName(S, now, p.name);
       else if (a === "back") r = C.setBack(S, String(p.id));
+      else if (a === "deck") r = C.setDeck(S, p.i);
       else if (a === "lb") {
         const rows = await tx`select pubid, pname, points from chizukan.players where pname is not null and not banned and points > 0 order by points desc, updated_at asc limit ${C.CFG.LB_SIZE}`;
         const [{ n }] = await tx`select count(*)::int as n from chizukan.players where points > ${S.points} and pname is not null and not banned`;
@@ -105,6 +107,7 @@ export async function handle(req, deps) {
       else return { status: 400, e: "bad_action", m: "unknown action" };
 
       const newAch = a === "reset" ? [] : C.checkAch(S, now); if (newAch.length) r.ach = newAch;
+      const lvUp = a === "reset" ? [] : C.trackTick(S); if (lvUp.length) r.lv = lvUp;
       C.invariant(S);
       if (ff) await tx`insert into chizukan.battle_log (player_id, seed, team_a, team_b, plan, res, rounds, pts, rules_ver, forfeit) values (${id}, ${ff.p.seed}, ${ff.p.A}, ${ff.p.B}, ${tx.json([])}, -1, 0, ${ff.pts}, ${E.RULES_VERSION}, true)`;
       if (a === "bfinish") { const h = r.entry; await tx`insert into chizukan.battle_log (player_id, seed, team_a, team_b, plan, res, rounds, pts, rules_ver, mode) values (${id}, ${h.seed}, ${h.A}, ${h.B}, ${tx.json(h.pa)}, ${h.res}, ${h.rounds}, ${h.pts}, ${h.rv}, ${h.mode || "n"})`; delete r.entry; }

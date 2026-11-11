@@ -11,6 +11,7 @@ export const CFG = {
   RANKS: [0, 20, 50, 100, 180, 300, 500],   // 端末の RANKS（見習い〜伝説）と同じしきい値
   SEASON_REWARD: [{ packs: 0, mp: 3 }, { packs: 0, mp: 5 }, { packs: 1, mp: 10 }, { packs: 1, mp: 20 }, { packs: 2, mp: 30 }, { packs: 2, mp: 50 }, { packs: 3, mp: 80 }],
   QUEST_N: 3, QUEST_BONUS_PACKS: 1,
+  DECKS: 3, TRACK_XP: 100, TRACK_MAX: 30, XP: { win: 30, play: 15, pack: 10, quest: 20, trip: 5 }, PRAC: [0.25, 0.55, 0.85],
 };
 const JST = 9 * 3600e3;
 const SKILLS = new Set(["swap", "guard", "rush", "auto"]);
@@ -46,6 +47,9 @@ export function normState(S) {
   if (!S.season || typeof S.season !== "object") S.season = { id: "", best: S.points | 0 };
   if (!S.sLast || typeof S.sLast !== "object") S.sLast = null;
   if (typeof S.back !== "string") S.back = "default";
+  if (!Array.isArray(S.decks) || S.decks.length !== CFG.DECKS) { S.decks = Array.from({ length: CFG.DECKS }, (_, i) => (i === 0 ? (S.team || []).slice() : [])); S.deckIdx = 0; }
+  if (!Number.isInteger(S.deckIdx) || S.deckIdx < 0 || S.deckIdx >= CFG.DECKS) S.deckIdx = 0;
+  if (!S.track || typeof S.track !== "object") S.track = { id: (S.season && S.season.id) || "", xp: 0, lv: 0 };
   return S;
 }
 
@@ -54,13 +58,14 @@ const seasonId = now => jstDay(now).slice(0, 7);
 // 月が変わったら、前シーズンの最高段位に応じた報酬を付与しポイントを半分に（ソフトリセット）
 function seasonTick(S, now) {
   const id = seasonId(now);
-  if (!S.season.id) { S.season = { id, best: S.points }; return; }
+  if (!S.season.id) { S.season = { id, best: S.points }; S.track.id = id; return; }
   if (S.season.id === id) return;
   const t = rankOf(S.season.best), rw = CFG.SEASON_REWARD[t];
   S.packs += rw.packs; S.mp += rw.mp;
   S.sLast = { id: S.season.id, tier: t, packs: rw.packs, mp: rw.mp, best: S.season.best };
   S.points = Math.floor(S.points / 2);
   S.season = { id, best: S.points };
+  S.track = { id, xp: 0, lv: 0 };
 }
 export function tick(S, now) {
   const iv = CFG.GRANT_MIN * 60e3;
@@ -80,7 +85,7 @@ export function view(S, now) {
   return { packs: S.packs, lastGrant: S.lastGrant, pity: S.pity, mp: S.mp, owned: S.owned, team: S.team, points: S.points,
     day: S.day, battlesToday: S.battlesToday, tasks: S.tasks, history: S.history, stats: S.stats, pending: !!S.pending, now,
     name: S.name, ach: S.ach, boss: { done: S.boss.day === S.day, res: S.boss.day === S.day ? S.boss.res : null, ids: bossFor(S.day).ids },
-    trip: { done: S.trip.day === S.day, n: S.trip.n, last: S.trip.last }, season: { id: S.season.id, best: S.season.best, tier: rankOf(S.points), bestTier: rankOf(S.season.best), days: daysLeft(now) }, sLast: S.sLast, quests: questView(S), back: S.back, ch: { n: S.ch.ids.length, max: CFG.CH_PER_DAY, ids: S.ch.ids } };
+    trip: { done: S.trip.day === S.day, n: S.trip.n, last: S.trip.last }, season: { id: S.season.id, best: S.season.best, tier: rankOf(S.points), bestTier: rankOf(S.season.best), days: daysLeft(now) }, sLast: S.sLast, quests: questView(S), back: S.back, decks: S.decks, deckIdx: S.deckIdx, track: trackView(S), ch: { n: S.ch.ids.length, max: CFG.CH_PER_DAY, ids: S.ch.ids } };
 }
 
 function daysLeft(now) { const d = new Date(now + JST), y = d.getUTCFullYear(), m = d.getUTCMonth(); return Math.round((Date.UTC(y, m + 1, 1) - Date.UTC(y, m, d.getUTCDate())) / 864e5); }
@@ -104,6 +109,24 @@ export function questsFor(day) {
 }
 function questView(S) { return { list: questsFor(S.day).map(q => ({ id: q.id, goal: q.goal, mp: q.mp, prog: Math.min(q.goal, q.p(S)), claimed: S.tasks.qc.includes(q.id) })), bonus: CFG.QUEST_BONUS_PACKS, bonusDone: S.tasks.qc.includes("bonus") }; }
 
+// ---- 報酬トラック（シーズンごと・XPでレベルアップ・報酬は自動付与） ----
+export function trackReward(lv) { return lv === CFG.TRACK_MAX ? { packs: 3, mp: 30 } : lv % 5 === 0 ? { packs: 1, mp: 10 } : { packs: 0, mp: 5 }; }
+function addXp(S, n) { S.track.xp += n; }
+function trackView(S) { const lv = Math.min(CFG.TRACK_MAX, Math.floor(S.track.xp / CFG.TRACK_XP)); return { xp: S.track.xp, lv, max: CFG.TRACK_MAX, per: CFG.TRACK_XP, next: lv < CFG.TRACK_MAX ? trackReward(lv + 1) : null }; }
+// 新しく到達したレベルの報酬を付与し [{lv,packs,mp}] を返す
+export function trackTick(S) {
+  const lv = Math.min(CFG.TRACK_MAX, Math.floor(S.track.xp / CFG.TRACK_XP)), out = [];
+  while (S.track.lv < lv) { S.track.lv++; const r = trackReward(S.track.lv); S.packs += r.packs; S.mp += r.mp; out.push({ lv: S.track.lv, packs: r.packs, mp: r.mp }); }
+  return out;
+}
+// ---- チームのプリセット ----
+export function setDeck(S, i) {
+  i = Number(i); if (!Number.isInteger(i) || i < 0 || i >= CFG.DECKS) fail("bad_deck", "不明なチームです");
+  S.decks[S.deckIdx] = S.team.slice(); S.deckIdx = i;
+  S.team = (S.decks[i] || []).filter(id => S.owned[id]); S.decks[i] = S.team.slice();
+  return {};
+}
+
 // ---- カードの裏面（実績で解放） ----
 export const BACKS = { default: null, sakura: "dex_25", indigo: "win_10", gold: "dex_50", seal: "boss_win", night: "rank_300", world: "dex_100" };
 export function setBack(S, id) {
@@ -125,7 +148,7 @@ const pick = (a, rand) => a[Math.floor(rand() * a.length)];
 export function openPack(S, now, rand) {
   tick(S, now);
   if (S.packs <= 0) fail("no_packs", "パックのストックがありません");
-  S.packs--; S.stats.packs++; S.tasks.opened++;
+  S.packs--; S.stats.packs++; S.tasks.opened++; addXp(S, CFG.XP.pack);
   const rars = []; for (let i = 0; i < CFG.PACK_SIZE; i++) rars.push(rollRarity(rand));
   const hasHigh = rars.some(r => r === "SR" || r === "SSR");
   const gold = S.pity >= CFG.GOLD_N - 1;
@@ -157,7 +180,7 @@ export function claim(S, now, k) {
   else if (typeof k === "string" && k.startsWith("q_")) {
     const q = questsFor(S.day).find(x => x.id === k);
     if (!q || S.tasks.qc.includes(k) || q.p(S) < q.goal) fail("cannot_claim", "受け取れる報酬がありません");
-    S.tasks.qc.push(k); S.mp += q.mp;
+    S.tasks.qc.push(k); S.mp += q.mp; addXp(S, CFG.XP.quest);
     if (questsFor(S.day).every(x => S.tasks.qc.includes(x.id)) && !S.tasks.qc.includes("bonus")) { S.tasks.qc.push("bonus"); S.packs += CFG.QUEST_BONUS_PACKS; }
   }
   else fail("cannot_claim", "受け取れる報酬がありません");
@@ -168,7 +191,7 @@ export function setTeam(S, ids) {
   if (!Array.isArray(ids) || ids.length > 3) fail("bad_team");
   const t = ids.map(Number);
   if (new Set(t).size !== t.length || !t.every(id => S.owned[id])) fail("bad_team", "持っていないカードは編成できません");
-  S.team = t;
+  S.team = t; S.decks[S.deckIdx] = t.slice();
   return {};
 }
 
@@ -206,7 +229,7 @@ export function forfeitPending(S, now) {
   S.pending = null;
   const mode = p.mode || "n";
   let pts = 0;
-  if (mode !== "boss") { pts = -Math.min(S.points, CFG.LOSS_PTS); S.points += pts; S.stats.l++; }
+  if (mode !== "boss" && mode !== "prac") { pts = -Math.min(S.points, CFG.LOSS_PTS); S.points += pts; S.stats.l++; }
   addHistory(S, { t: now, seed: p.seed, A: p.A, B: p.B, pa: [], res: -1, rounds: 0, pts, rv: E.RULES_VERSION, name: p.name, forfeit: true, mode });
   return { pts, p };
 }
@@ -219,6 +242,9 @@ export function battleStart(S, now, rand, opt = {}) {
   if (opt.boss) {
     if (S.boss.day === S.day) fail("boss_done", "今日の首領戦はすでに挑戦済みです");
     mode = "boss"; const b = bossFor(S.day); B = b.ids; name = "BOSS";
+  } else if (opt.prac !== undefined) {
+    const lv = Number(opt.prac); if (!Number.isInteger(lv) || lv < 0 || lv >= CFG.PRAC.length) fail("bad_level", "不明な強さです");
+    mode = "prac"; const o = sampleTeam(E.mulberry32(Math.floor(rand() * 4294967296)), CFG.PRAC[lv], 600); B = o.t; name = ["練習・やさしい", "練習・ふつう", "練習・つよい"][lv];
   } else if (opt.ch) {
     const c = opt.ch;
     if (!c || !Array.isArray(c.team) || c.team.length !== 3 || !c.team.every(id => BY_ID[id])) fail("bad_target", "この相手には挑戦できません");
@@ -233,6 +259,7 @@ export function battleStart(S, now, rand, opt = {}) {
   const ff = S.pending ? forfeitPending(S, now) : null;   // 前の未完了対戦の敗北処理（検証を通ってから）
   const seed = Math.floor(rand() * 4294967296);
   if (mode === "boss") S.boss = { day: S.day, res: null };
+  else if (mode === "prac") { /* 回数・クエストに数えない */ }
   else { S.battlesToday++; S.tasks.battles++; if (mode === "ch") S.ch.ids.push(pub); }
   S.pending = { seed, A: S.team.slice(), B, name, t: now, mode, pub, tp };
   return { seed, A: S.pending.A, B, name, mode, forfeited: ff ? ff.pts : null };
@@ -258,12 +285,13 @@ export function battleFinish(S, now, plan) {
     if (res.res === 1) { S.stats.boss++; reward = Object.assign({}, CFG.BOSS_WIN); S.packs += reward.packs; S.mp += reward.mp; }
     else { reward = { packs: 0, mp: CFG.BOSS_TRY_MP }; S.mp += reward.mp; }
     S.boss = { day: S.day, res: res.res };
+  } else if (mode === "prac") { /* 練習：何も変動しない */
   } else {
     if (res.res === 1) { pts = mode === "ch" && p.tp * 2 < p0 ? CFG.CH_LOW_WIN : CFG.WIN_PTS; S.stats.w++; if (mode === "ch") S.stats.ch++; }
     else if (res.res === -1) { pts = -Math.min(S.points, CFG.LOSS_PTS); S.stats.l++; } else S.stats.d++;
     S.points += pts; if (S.points > S.season.best) S.season.best = S.points;
   }
-  if (res.res === 1) S.tasks.wins++;
+  if (mode !== "prac") { if (res.res === 1) S.tasks.wins++; addXp(S, res.res === 1 ? CFG.XP.win : CFG.XP.play); }
   const h = { t: now, seed: p.seed, A: p.A, B: p.B, pa, res: res.res, rounds: res.rounds, pts, rv: E.RULES_VERSION, name: p.name, mode };
   addHistory(S, h);
   return { res: res.res, rounds: res.rounds, how: res.how, pts, p0, points: S.points, entry: h, mode, reward };
@@ -276,7 +304,7 @@ export function trip(S, now, rand) {
   const ids = Object.keys(S.owned).map(Number).sort((a, b) => a - b);
   if (!ids.length) fail("no_cards", "カードがありません");
   const id = ids[Math.floor(rand() * ids.length)];
-  S.trip = { day: S.day, n: S.trip.n + 1, last: id }; S.mp += CFG.TRIP_MP;
+  S.trip = { day: S.day, n: S.trip.n + 1, last: id }; S.mp += CFG.TRIP_MP; addXp(S, CFG.XP.trip);
   return { id, mp: CFG.TRIP_MP };
 }
 
