@@ -1,5 +1,5 @@
 // Chizukan 戦闘エンジン（規則 v0.7 候補）。HP×1・最大8回合・スキル（交代／防御／強攻）。
-const RULES_VERSION = "v1.1";
+const RULES_VERSION = "v1.2";
 const HP_MULT = 1;
 const MAX_ROUNDS = 8;
 const SKILL_USES = 3;
@@ -9,9 +9,11 @@ const TRAIT_JP = { first: "先手", stand: "不動", boom: "繁栄", regen: "再
 const TRAIT_DESC = { first: "先に攻撃し、倒せば反撃を受けない（先手同士は同時）", stand: "受けるダメージ×0.85", boom: "与えるダメージ×1.08", regen: "毎回合の終わりに最大HPの8%回復" };
 // 特技（SR/SSR）: 聖盾=最初の被弾を1回無効／貫通=相手DEFの影響を半減／遺言=撃破時に相手へATK×0.6の固定ダメージ／凱旋=撃破後HPを15%回復
 const KW_LIST = ["shield", "pierce", "rattle", "triumph"];
-const KW_JP = { shield: "聖盾", pierce: "貫通", rattle: "遺言", triumph: "凱旋" };
-const KW_DESC = { shield: "最初に受けるダメージを1回無効にする", pierce: "相手のDEFによる軽減が半分になる", rattle: "撃破されたとき、相手にATK×0.6の固定ダメージ", triumph: "相手を撃破したとき最大HPの15%回復" };
-function kwFor(id, rar) { return rar === "SR" || rar === "SSR" ? KW_LIST[(id * 7 + 3) % 4] : null; }
+const KW_JP = { shield: "聖盾", pierce: "貫通", rattle: "遺言", triumph: "凱旋", sturdy: "堅守", keen: "鋭利", spite: "意地", cheer: "鼓舞" };
+// 軽い特技（N/R）: 堅守=最初の被弾を30%軽減／鋭利=相手DEFの軽減が0.5→0.4／意地=撃破時に相手へATK×0.25の固定ダメージ／鼓舞=撃破後HPを6%回復
+const KW_LIGHT = ["sturdy", "keen", "spite", "cheer"];
+const KW_DESC = { shield: "最初に受けるダメージを1回無効にする", pierce: "相手のDEFによる軽減が半分になる", rattle: "撃破されたとき、相手にATK×0.6の固定ダメージ", triumph: "相手を撃破したとき最大HPの15%回復", sturdy: "最初に受けるダメージを1回だけ30%軽減", keen: "相手のDEFによる軽減が少し減る（0.5→0.4）", spite: "撃破されたとき、相手にATK×0.25の固定ダメージ", cheer: "相手を撃破したとき最大HPの6%回復" };
+function kwFor(id, rar) { return rar === "SR" || rar === "SSR" ? KW_LIST[(id * 7 + 3) % 4] : KW_LIGHT[(id * 5 + 1) % 4]; }
 function kwOf(c) { return c.kw || null; }
 function traitOf(c) { return c.rar && c.rar !== "N" ? TRAIT[c.attr] || null : null; }
 // 地域連携: 同地域2枚→その2枚のATK+5%／3枚→全員ATK+10%・HP+10%。補正後のカード（コピー）を返す。
@@ -59,7 +61,7 @@ function makeRoller(seed) {
 // 各陣営は合計 SKILL_USES 回まで・1回合1つ。
 function firstAlive(h, except) { for (let i = 0; i < h.length; i++) if (i !== except && h[i] > 0) return i; return -1; }
 function calcDmg(a, b, roll, mine, theirs) {
-  let d = a.atk * attrMult(a.attr, b.attr) * roll - (kwOf(a) === "pierce" ? 0.25 : 0.5) * b.def;
+  let d = a.atk * attrMult(a.attr, b.attr) * roll - (kwOf(a) === "pierce" ? 0.25 : kwOf(a) === "keen" ? 0.4 : 0.5) * b.def;
   if (traitOf(a) === "boom") d *= 1.08;
   if (traitOf(b) === "stand") d *= 0.85;
   if (mine === "rush") d *= 1.5;
@@ -88,6 +90,7 @@ function battle(A, B, roll, hpMult = HP_MULT, cap = MAX_ROUNDS, plans = {}) {
   const mxA = ha.slice(), mxB = hb.slice();
   const maxA = ha.reduce((s, x) => s + x, 0), maxB = hb.reduce((s, x) => s + x, 0);
   const shA = A.map(c => kwOf(c) !== "shield"), shB = B.map(c => kwOf(c) !== "shield");   // true=聖盾なし／使用済み
+  const stA = A.map(c => kwOf(c) !== "sturdy"), stB = B.map(c => kwOf(c) !== "sturdy");   // true=堅守なし／使用済み
   let ia = 0, ib = 0, ua = 0, ub = 0;
   const log = [];
   const pick = (pl, r) => pl === "auto" ? "auto" : (pl && pl[r - 1]) || null;
@@ -104,9 +107,9 @@ function battle(A, B, roll, hpMult = HP_MULT, cap = MAX_ROUNDS, plans = {}) {
     const a = A[ia], b = B[ib];
     const da = calcDmg(a, b, roll(), sa, sb);
     const db = calcDmg(b, a, roll(), sb, sa);
-    let daa = da, dbb = db, fk = 0, blkA = false, blkB = false, drA = 0, drB = 0, tvA = 0, tvB = 0;
-    const hitB = () => { if (!shB[ib] && daa > 0) { shB[ib] = true; daa = 0; blkB = true; } hb[ib] -= daa; };
-    const hitA = () => { if (!shA[ia] && dbb > 0) { shA[ia] = true; dbb = 0; blkA = true; } ha[ia] -= dbb; };
+    let daa = da, dbb = db, fk = 0, blkA = false, blkB = false, drA = 0, drB = 0, tvA = 0, tvB = 0, gdA = false, gdB = false;
+    const hitB = () => { if (!shB[ib] && daa > 0) { shB[ib] = true; daa = 0; blkB = true; } else if (!stB[ib] && daa > 0) { stB[ib] = true; daa = Math.max(1, roundHalfEven(daa * 0.7)); gdB = true; } hb[ib] -= daa; };
+    const hitA = () => { if (!shA[ia] && dbb > 0) { shA[ia] = true; dbb = 0; blkA = true; } else if (!stA[ia] && dbb > 0) { stA[ia] = true; dbb = Math.max(1, roundHalfEven(dbb * 0.7)); gdA = true; } ha[ia] -= dbb; };
     const fa1 = traitOf(a) === "first", fb1 = traitOf(b) === "first";
     if (fa1 && !fb1) { hitB(); if (hb[ib] <= 0) { dbb = 0; fk = 1; } else hitA(); }
     else if (fb1 && !fa1) { hitA(); if (ha[ia] <= 0) { daa = 0; fk = -1; } else hitB(); }
@@ -116,13 +119,14 @@ function battle(A, B, roll, hpMult = HP_MULT, cap = MAX_ROUNDS, plans = {}) {
     if (traitOf(a) === "regen" && ha[ia] > 0) { const nh = Math.min(mxA[ia], ha[ia] + Math.max(1, Math.round(mxA[ia] * 0.08))); reA = nh - ha[ia]; ha[ia] = nh; }
     if (traitOf(b) === "regen" && hb[ib] > 0) { const nh = Math.min(mxB[ib], hb[ib] + Math.max(1, Math.round(mxB[ib] * 0.08))); reB = nh - hb[ib]; hb[ib] = nh; }
     // 遺言（相手が生きている場合のみ・連鎖しない）／凱旋
-    const rA = killA && !killB && kwOf(a) === "rattle" ? Math.max(1, roundHalfEven(a.atk * 0.6)) : 0;
-    const rB = killB && !killA && kwOf(b) === "rattle" ? Math.max(1, roundHalfEven(b.atk * 0.6)) : 0;
+    const rf = c => kwOf(c) === "rattle" ? 0.6 : kwOf(c) === "spite" ? 0.25 : 0, tf = c => kwOf(c) === "triumph" ? 0.15 : kwOf(c) === "cheer" ? 0.06 : 0;
+    const rA = killA && !killB && rf(a) ? Math.max(1, roundHalfEven(a.atk * rf(a))) : 0;
+    const rB = killB && !killA && rf(b) ? Math.max(1, roundHalfEven(b.atk * rf(b))) : 0;
     if (rA) { drA = rA; hb[ib] -= rA; }
     if (rB) { drB = rB; ha[ia] -= rB; }
-    if (killB && ha[ia] > 0 && kwOf(a) === "triumph") { const nh = Math.min(mxA[ia], ha[ia] + Math.max(1, roundHalfEven(mxA[ia] * 0.15))); tvA = nh - ha[ia]; ha[ia] = nh; }
-    if (killA && hb[ib] > 0 && kwOf(b) === "triumph") { const nh = Math.min(mxB[ib], hb[ib] + Math.max(1, roundHalfEven(mxB[ib] * 0.15))); tvB = nh - hb[ib]; hb[ib] = nh; }
-    const entry = { fk, reA, reB, blkA, blkB, drA, drB, tvA, tvB, round: r, ia, ib, fromA, fromB, actA: sa, actB: sb, da: daa, db: dbb, aAttr: attrMult(a.attr, b.attr), bAttr: attrMult(b.attr, a.attr), koA: false, koB: false };
+    if (killB && ha[ia] > 0 && tf(a)) { const nh = Math.min(mxA[ia], ha[ia] + Math.max(1, roundHalfEven(mxA[ia] * tf(a)))); tvA = nh - ha[ia]; ha[ia] = nh; }
+    if (killA && hb[ib] > 0 && tf(b)) { const nh = Math.min(mxB[ib], hb[ib] + Math.max(1, roundHalfEven(mxB[ib] * tf(b)))); tvB = nh - hb[ib]; hb[ib] = nh; }
+    const entry = { fk, reA, reB, gdA, gdB, blkA, blkB, drA, drB, tvA, tvB, round: r, ia, ib, fromA, fromB, actA: sa, actB: sb, da: daa, db: dbb, aAttr: attrMult(a.attr, b.attr), bAttr: attrMult(b.attr, a.attr), koA: false, koB: false };
     if (hb[ib] <= 0) { const k = firstAlive(hb, -1); if (k >= 0) { ib = k; } entry.koB = true; }
     if (ha[ia] <= 0) { const k = firstAlive(ha, -1); if (k >= 0) { ia = k; } entry.koA = true; }
     entry.nia = ia; entry.nib = ib;
@@ -171,4 +175,4 @@ function prepTeams(A, B, opt) {
   return { A: a, B: b };
 }
 function teamPower(T) { return T.reduce((s, c) => s + c.atk + c.hp + c.def, 0); }
-export { GUIDES, BRAWLS, BRAWL_LIST, applyGuide, applyRule, prepTeams, kwFor, kwOf, KW_JP, KW_DESC, applySynergy, synText, traitOf, TRAIT_JP, TRAIT_DESC, battle, makeRoller, mulberry32, roundHalfEven, attrMult, teamPower, HP_MULT, MAX_ROUNDS, RULES_VERSION, SKILL_USES };
+export { KW_LIGHT, GUIDES, BRAWLS, BRAWL_LIST, applyGuide, applyRule, prepTeams, kwFor, kwOf, KW_JP, KW_DESC, applySynergy, synText, traitOf, TRAIT_JP, TRAIT_DESC, battle, makeRoller, mulberry32, roundHalfEven, attrMult, teamPower, HP_MULT, MAX_ROUNDS, RULES_VERSION, SKILL_USES };

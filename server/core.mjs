@@ -57,7 +57,7 @@ export function normState(S) {
   if (!S.arena || typeof S.arena !== "object" || !Array.isArray(S.arena.picks)) S.arena = emptyArena();
   return S;
 }
-const emptyArena = () => ({ day: "", offers: [], picks: [], w: 0, l: 0, done: false, reward: null });
+function emptyArena() { return { day: "", offers: [], picks: [], w: 0, l: 0, done: false, reward: null }; }
 // 日本時間の月曜始まりの週番号
 export function weekId(now) { return String(Math.floor((Math.floor((now + JST) / 864e5) + 3) / 7)); }
 export function brawlFor(wk) { return E.BRAWL_LIST[Number(wk) % E.BRAWL_LIST.length]; }
@@ -176,7 +176,7 @@ export function setBack(S, id) {
 }
 
 export class GameError extends Error { constructor(code, msg) { super(msg || code); this.code = code; } }
-const fail = (code, msg) => { throw new GameError(code, msg); };
+function fail(code, msg) { throw new GameError(code, msg); }
 
 function rollRarity(rand) {
   let r = rand() * 100;

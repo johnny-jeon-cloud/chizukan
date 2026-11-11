@@ -6,8 +6,8 @@ const mk = () => { const P = C.freshState(now); C.CARDS.forEach(c => P.owned[c.i
 const card = (o) => Object.assign({ id: 1, rar: "N", attr: "都市", area: "日本", atk: 50, hp: 60, def: 20, kw: null }, o);
 const fixed = () => 1.0;
 // --- 特技 ---
-const kws = new Set(C.CARDS.filter(c => c.kw).map(c => c.kw)); assert.equal(kws.size, 4);
-assert(C.CARDS.every(c => (c.rar === "SR" || c.rar === "SSR") === !!c.kw));
+const kws = new Set(C.CARDS.filter(c => c.kw).map(c => c.kw)); assert.equal(kws.size, 8);
+assert(C.CARDS.every(c => ["shield","pierce","rattle","triumph"].includes(c.kw) === (c.rar === "SR" || c.rar === "SSR")));
 { // 聖盾: 最初の被弾を無効、2回目は通る
   const A = [card({ atk: 40, hp: 100 })], B = [card({ rar: "SR", kw: "shield", atk: 10, hp: 100 })];
   const r = E.battle(A, B, fixed, 1, 8, { a: "x", b: "x" });
