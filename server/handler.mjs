@@ -78,6 +78,13 @@ export async function handle(req, deps) {
         else if (p.mode === "prac") opt = { prac: Number(p.lv) };
         else if (p.mode === "arena") opt = { arena: true };
         else if (p.mode === "brawl") opt = { brawl: true };
+        else if (p.mode === "fr") {
+          const pub = String(p.pub || "");
+          if (!/^[0-9a-f]{10}$/.test(pub)) throw new C.GameError("bad_target", "この相手とは対戦できません");
+          const [t] = await tx`select pubid, pname, state->'team' as team from chizukan.players where pubid = ${pub} and banned = false`;
+          if (!t) throw new C.GameError("bad_target", "この相手とは対戦できません");
+          opt = { fr: { pub, name: t.pname, team: t.team } };
+        }
         else if (p.mode === "ch") {
           const pub = String(p.pub || "");
           if (!/^[0-9a-f]{10}$/.test(pub)) throw new C.GameError("bad_target", "この相手には挑戦できません");
@@ -94,6 +101,22 @@ export async function handle(req, deps) {
       else if (a === "back") r = C.setBack(S, String(p.id));
       else if (a === "deck") r = C.setDeck(S, p.i);
       else if (a === "guide") r = C.setGuide(S, p.id);
+      else if (a === "quiz") r = C.quizAnswer(S, now, p.id);
+      else if (a === "friend") {
+        if (p.op === "del") r = C.friendDel(S, p.pub);
+        else if (p.op === "add") {
+          const pub = String(p.pub || "").trim().toLowerCase();
+          C.friendAdd(S, pub, row.pubid);
+          const [t] = await tx`select pubid from chizukan.players where pubid = ${pub} and banned = false`;
+          if (!t) throw new C.GameError("bad_friend", "このIDのプレイヤーが見つかりません");
+        }
+        const list = [];
+        for (const pub of S.friends) {
+          const [t] = await tx`select pubid, pname, points, state->'team' as team from chizukan.players where pubid = ${pub} and banned = false`;
+          if (t) list.push({ pub: t.pubid, n: t.pname || "", pts: t.points, team: Array.isArray(t.team) && t.team.length === 3 ? t.team : null });
+        }
+        r = { friends: list };
+      }
       else if (a === "arena") r = p.op === "pick" ? C.arenaPick(S, p.i) : C.arenaStart(S, now, rand);
       else if (a === "lb") {
         const rows = await tx`select pubid, pname, points from chizukan.players where pname is not null and not banned and points > 0 order by points desc, updated_at asc limit ${C.CFG.LB_SIZE}`;

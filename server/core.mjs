@@ -13,6 +13,7 @@ export const CFG = {
   QUEST_N: 3, QUEST_BONUS_PACKS: 1,
   DECKS: 3, TRACK_XP: 100, TRACK_MAX: 30, XP: { win: 30, play: 15, pack: 10, quest: 20, trip: 5 }, PRAC: [0.25, 0.55, 0.85],
   ARENA_WINS: 3, ARENA_LOSSES: 2, ARENA_REWARD: [{ packs: 0, mp: 3 }, { packs: 0, mp: 8 }, { packs: 0, mp: 15 }, { packs: 1, mp: 20 }], BRAWL_WIN: { packs: 1, mp: 10 },
+  FRIENDS_MAX: 20, QUIZ_MP: { ok: 3, ng: 1 },
 };
 const JST = 9 * 3600e3;
 const SKILLS = new Set(["swap", "guard", "rush", "auto"]);
@@ -39,6 +40,10 @@ export function freshState(now) {
 export function normState(S) {
   S.v = 2;
   S.stats = Object.assign({ packs: 0, w: 0, l: 0, d: 0 }, S.stats); S.stats.boss = S.stats.boss || 0; S.stats.ch = S.stats.ch || 0;
+  for (const k of ["streak", "best", "arenaRuns", "arena3", "brawlW", "fr"]) S.stats[k] = S.stats[k] || 0;
+  if (!Array.isArray(S.friends)) S.friends = [];
+  if (!S.quiz || typeof S.quiz !== "object") S.quiz = { day: "", ok: null };
+  if (!S.use || typeof S.use !== "object") S.use = {};
   if (typeof S.name !== "string") S.name = "";
   if (!S.ach || typeof S.ach !== "object") S.ach = {};
   if (!S.boss || typeof S.boss !== "object") S.boss = { day: "", res: null };
@@ -95,7 +100,7 @@ export function view(S, now) {
   return { packs: S.packs, lastGrant: S.lastGrant, pity: S.pity, mp: S.mp, owned: S.owned, team: S.team, points: S.points,
     day: S.day, battlesToday: S.battlesToday, tasks: S.tasks, history: S.history, stats: S.stats, pending: !!S.pending, now,
     name: S.name, ach: S.ach, boss: { done: S.boss.day === S.day, res: S.boss.day === S.day ? S.boss.res : null, ids: bossFor(S.day).ids },
-    trip: { done: S.trip.day === S.day, n: S.trip.n, last: S.trip.last }, season: { id: S.season.id, best: S.season.best, tier: rankOf(S.points), bestTier: rankOf(S.season.best), days: daysLeft(now) }, sLast: S.sLast, quests: questView(S), back: S.back, decks: S.decks, deckIdx: S.deckIdx, track: trackView(S), guide: S.guide, brawl: { rule: brawlFor(S.brawl.wk), won: S.brawl.won, reward: CFG.BRAWL_WIN }, arena: arenaView(S), ch: { n: S.ch.ids.length, max: CFG.CH_PER_DAY, ids: S.ch.ids } };
+    trip: { done: S.trip.day === S.day, n: S.trip.n, last: S.trip.last }, season: { id: S.season.id, best: S.season.best, tier: rankOf(S.points), bestTier: rankOf(S.season.best), days: daysLeft(now) }, sLast: S.sLast, quests: questView(S), back: S.back, decks: S.decks, deckIdx: S.deckIdx, track: trackView(S), guide: S.guide, brawl: { rule: brawlFor(S.brawl.wk), won: S.brawl.won, reward: CFG.BRAWL_WIN }, arena: arenaView(S), friends: S.friends, quiz: quizView(S), use: S.use, ch: { n: S.ch.ids.length, max: CFG.CH_PER_DAY, ids: S.ch.ids } };
 }
 
 function daysLeft(now) { const d = new Date(now + JST), y = d.getUTCFullYear(), m = d.getUTCMonth(); return Math.round((Date.UTC(y, m + 1, 1) - Date.UTC(y, m, d.getUTCDate())) / 864e5); }
@@ -157,7 +162,35 @@ export function arenaPick(S, i) {
 function arenaSettle(S) {
   const a = S.arena; if (a.w < CFG.ARENA_WINS && a.l < CFG.ARENA_LOSSES) return null;
   const rw = Object.assign({}, CFG.ARENA_REWARD[Math.min(a.w, CFG.ARENA_WINS)]);
-  a.done = true; a.reward = rw; S.packs += rw.packs; S.mp += rw.mp; return rw;
+  a.done = true; a.reward = rw; S.packs += rw.packs; S.mp += rw.mp; S.stats.arenaRuns++; if (a.w >= CFG.ARENA_WINS) S.stats.arena3++; return rw;
+}
+// ---- 友だち（公開IDで一方的に登録。相手の編成と練習試合ができる） ----
+const PUB_RE = /^[0-9a-f]{10}$/;
+export function friendAdd(S, pub, selfPub) {
+  pub = String(pub || "").toLowerCase();
+  if (!PUB_RE.test(pub) || pub === selfPub) fail("bad_friend", "このIDは登録できません");
+  if (S.friends.includes(pub)) fail("friend_dup", "すでに登録済みです");
+  if (S.friends.length >= CFG.FRIENDS_MAX) fail("friend_full", "友だちは" + CFG.FRIENDS_MAX + "人までです");
+  S.friends.push(pub); return {};
+}
+export function friendDel(S, pub) { S.friends = S.friends.filter(x => x !== String(pub)); return {}; }
+// ---- 今日のクイズ（全員同じ。説明文からカードを当てる） ----
+export function quizFor(day) {
+  const rnd = E.mulberry32(hashStr("quiz|" + day)), t = CARDS[Math.floor(rnd() * CARDS.length)];
+  const pool = CARDS.filter(c => c.area === t.area && c.id !== t.id).map(c => c.id);
+  for (let j = pool.length - 1; j > 0; j--) { const k = Math.floor(rnd() * (j + 1)); [pool[j], pool[k]] = [pool[k], pool[j]]; }
+  const opts = pool.slice(0, 3).concat(t.id);
+  for (let j = opts.length - 1; j > 0; j--) { const k = Math.floor(rnd() * (j + 1)); [opts[j], opts[k]] = [opts[k], opts[j]]; }
+  return { t: t.id, opts };
+}
+function quizView(S) { const q = quizFor(S.day), done = S.quiz.day === S.day; return { t: q.t, opts: q.opts, done, ok: done ? S.quiz.ok : null, mp: CFG.QUIZ_MP }; }
+export function quizAnswer(S, now, id) {
+  tick(S, now);
+  if (S.quiz.day === S.day) fail("quiz_done", "今日のクイズは回答済みです");
+  const q = quizFor(S.day); id = Number(id); if (!q.opts.includes(id)) fail("bad_answer", "選択肢にありません");
+  const ok = id === q.t, mp = ok ? CFG.QUIZ_MP.ok : CFG.QUIZ_MP.ng;
+  S.quiz = { day: S.day, ok }; S.mp += mp;
+  return { ok, mp, t: q.t };
 }
 // ---- チームのプリセット ----
 export function setDeck(S, i) {
@@ -269,12 +302,13 @@ export function forfeitPending(S, now) {
   S.pending = null;
   const mode = p.mode || "n";
   let pts = 0;
-  if (mode === "n" || mode === "ch") { pts = -Math.min(S.points, CFG.LOSS_PTS); S.points += pts; S.stats.l++; }
+  if (mode === "n" || mode === "ch") { pts = -Math.min(S.points, CFG.LOSS_PTS); S.points += pts; S.stats.l++; S.stats.streak = 0; useCount(S, p.A, false); }
   if (mode === "arena") { S.arena.l++; arenaSettle(S); }
   addHistory(S, { t: now, seed: p.seed, A: p.A, B: p.B, pa: [], res: -1, rounds: 0, pts, rv: E.RULES_VERSION, name: p.name, forfeit: true, mode, g: p.g || null, rule: p.rule || null });
   return { pts, p };
 }
 
+function useCount(S, A, win) { for (const id of A) { const u = S.use[id] || (S.use[id] = [0, 0]); u[0]++; if (win) u[1]++; } }
 // opt: {} 通常 / {boss:true} 今日の首領 / {ch:{pub,name,team,points}} 他のプレイヤーのチームへの挑戦
 export function battleStart(S, now, rand, opt = {}) {
   tick(S, now);
@@ -287,6 +321,10 @@ export function battleStart(S, now, rand, opt = {}) {
     mode = "arena"; B = sampleTeam(sub(), Math.min(0.95, 0.45 + 0.15 * S.arena.w), 600).t; name = "闘技場 第" + (S.arena.w + S.arena.l + 1) + "戦";
   } else if (opt.brawl) {
     mode = "brawl"; rule = brawlFor(S.brawl.wk); B = rule === "mirror" ? A.slice().reverse() : sampleTeam(sub(), 0.6, 600).t; name = "今週の乱闘";
+  } else if (opt.fr) {
+    const c = opt.fr;
+    if (!c || !S.friends.includes(c.pub) || !Array.isArray(c.team) || c.team.length !== 3 || !c.team.every(id => BY_ID[id])) fail("bad_target", "この相手とは対戦できません（相手の編成が未完成かもしれません）");
+    mode = "fr"; pub = c.pub; B = c.team.slice(); name = String(c.name || "").slice(0, 12) || "友だち";
   } else if (opt.boss) {
     if (S.boss.day === S.day) fail("boss_done", "今日の首領戦はすでに挑戦済みです");
     mode = "boss"; const b = bossFor(S.day); B = b.ids; name = "BOSS";
@@ -308,7 +346,7 @@ export function battleStart(S, now, rand, opt = {}) {
   const ff = S.pending ? forfeitPending(S, now) : null;   // 前の未完了対戦の敗北処理（検証を通ってから）
   const seed = Math.floor(rand() * 4294967296);
   if (mode === "boss") S.boss = { day: S.day, res: null };
-  else if (mode === "prac" || mode === "arena" || mode === "brawl") { /* 回数・クエストに数えない */ }
+  else if (mode === "prac" || mode === "arena" || mode === "brawl" || mode === "fr") { /* 回数・クエストに数えない */ }
   else { S.battlesToday++; S.tasks.battles++; if (mode === "ch") S.ch.ids.push(pub); }
   S.pending = { seed, A, B, name, t: now, mode, pub, tp, g: S.guide || null, rule };
   return { seed, A, B, name, mode, g: S.pending.g, rule, forfeited: ff ? ff.pts : null };
@@ -335,7 +373,9 @@ export function battleFinish(S, now, plan) {
     else { reward = { packs: 0, mp: CFG.BOSS_TRY_MP }; S.mp += reward.mp; }
     S.boss = { day: S.day, res: res.res };
   } else if (mode === "prac") { /* 練習：何も変動しない */
+  } else if (mode === "fr") { S.stats.fr++;
   } else if (mode === "brawl") {
+    if (res.res === 1) S.stats.brawlW++;
     if (res.res === 1 && !S.brawl.won) { S.brawl.won = true; reward = Object.assign({}, CFG.BRAWL_WIN); S.packs += reward.packs; S.mp += reward.mp; }
   } else if (mode === "arena") {
     if (res.res === 1) S.arena.w++; else S.arena.l++;
@@ -344,8 +384,10 @@ export function battleFinish(S, now, plan) {
     if (res.res === 1) { pts = mode === "ch" && p.tp * 2 < p0 ? CFG.CH_LOW_WIN : CFG.WIN_PTS; S.stats.w++; if (mode === "ch") S.stats.ch++; }
     else if (res.res === -1) { pts = -Math.min(S.points, CFG.LOSS_PTS); S.stats.l++; } else S.stats.d++;
     S.points += pts; if (S.points > S.season.best) S.season.best = S.points;
+    if (res.res === 1) { S.stats.streak++; if (S.stats.streak > S.stats.best) S.stats.best = S.stats.streak; } else S.stats.streak = 0;
+    useCount(S, p.A, res.res === 1);
   }
-  if (mode !== "prac" && mode !== "brawl") { if (res.res === 1) S.tasks.wins++; addXp(S, res.res === 1 ? CFG.XP.win : CFG.XP.play); }
+  if (mode !== "prac" && mode !== "brawl" && mode !== "fr") { if (res.res === 1) S.tasks.wins++; addXp(S, res.res === 1 ? CFG.XP.win : CFG.XP.play); }
   const h = { t: now, seed: p.seed, A: p.A, B: p.B, pa, res: res.res, rounds: res.rounds, pts, rv: E.RULES_VERSION, name: p.name, mode, g: p.g || null, rule: p.rule || null };
   addHistory(S, h);
   return { res: res.res, rounds: res.rounds, how: res.how, pts, p0, points: S.points, entry: h, mode, reward };
