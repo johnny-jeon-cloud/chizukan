@@ -8,7 +8,7 @@ import * as C from "./core.mjs";
 const db = new PGlite(); await db.exec("create role anon; create role authenticated;"); await db.exec(fs.readFileSync("schema.sql", "utf8"));
 const srv = new PGLiteSocketServer({ db, port: 54329, host: "127.0.0.1" }); await srv.start();
 const sql = postgres("postgres://postgres:postgres@127.0.0.1:54329/postgres", { max: 1, prepare: false, ssl: false, onnotice: () => {} });
-let T = Date.UTC(2026, 10, 11, 3, 0, 0); let ip = "1.1.1.1";
+let T = Date.now() + 5000; let ip = "1.1.1.1";
 const call = async (a, o = {}, extra = {}) => {
   const req = new Request("https://x/fn", { method: "POST", headers: { "x-forwarded-for": ip }, body: JSON.stringify({ a, ...o }) });
   const res = await handle(req, { sql, now: () => T, ...extra }); return { st: res.status, j: await res.json() };

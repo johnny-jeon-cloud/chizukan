@@ -10,15 +10,20 @@ create table chizukan.players (
   ip_hash text,
   win_start timestamptz not null default now(),
   win_n int not null default 0,
-  banned boolean not null default false
+  banned boolean not null default false,
+  pubid text not null default substr(md5(random()::text || clock_timestamp()::text), 1, 10),
+  points int not null default 0,
+  pname text
 );
+create unique index players_pubid_idx on chizukan.players (pubid);
+create index players_points_idx on chizukan.players (points desc) where pname is not null;
 create index players_ip_created_idx on chizukan.players (ip_hash, created_at);
 create table chizukan.battle_log (
   id bigint generated always as identity primary key,
   player_id uuid not null references chizukan.players(id) on delete cascade,
   seed bigint not null, team_a int[] not null, team_b int[] not null, plan jsonb not null,
   res smallint not null, rounds smallint not null, pts smallint not null, rules_ver text not null,
-  forfeit boolean not null default false, created_at timestamptz not null default now()
+  forfeit boolean not null default false, mode text not null default 'n', created_at timestamptz not null default now()
 );
 create index battle_log_player_idx on chizukan.battle_log (player_id, created_at desc);
 create table chizukan.feedback (

@@ -58,13 +58,13 @@ export async function handle(req, deps) {
     const kh = await sha256("k|" + k);
 
     const out = await sql.begin(async tx => {
-      const [row] = await tx`select id, secret_hash, state, win_start, win_n, banned from chizukan.players where id = ${id} for update`;
+      const [row] = await tx`select id, pubid, secret_hash, state, win_start, win_n, banned from chizukan.players where id = ${id} for update`;
       if (!row || !safeEq(row.secret_hash, kh)) return { status: 401, e: "auth", m: "認証に失敗しました" };
       if (row.banned) return { status: 403, e: "banned", m: "このアカウントは利用できません" };
       const inWin = now - new Date(row.win_start).getTime() < RATE_WIN_MS, wn = inWin ? row.win_n + 1 : 1;
       if (wn > RATE_N) { await tx`update chizukan.players set win_n = ${wn} where id = ${id}`; return { status: 429, e: "rate_limited", m: "操作が多すぎます。少し待ってください" }; }
 
-      const S = row.state; let r = {}, ff = null;
+      const S = C.normState(row.state); let r = {}, ff = null;
       C.tick(S, now);
       if (a === "state") { ff = S.pending ? C.forfeitPending(S, now) : null; if (ff) r.forfeited = ff.pts; }
       else if (a === "open") r = C.openPack(S, now, rand);
@@ -73,10 +73,26 @@ export async function handle(req, deps) {
       else if (a === "team") r = C.setTeam(S, p.ids);
       else if (a === "bstart") {
         const hadPending = !!S.pending && S.pending;
-        r = C.battleStart(S, now, rand);
+        let opt = {};
+        if (p.mode === "boss") opt = { boss: true };
+        else if (p.mode === "ch") {
+          const pub = String(p.pub || "");
+          if (!/^[0-9a-f]{10}$/.test(pub)) throw new C.GameError("bad_target", "この相手には挑戦できません");
+          const [t] = await tx`select id, pubid, pname, points, state->'team' as team from chizukan.players where pubid = ${pub} and banned = false`;
+          if (!t || t.id === id || !t.pname) throw new C.GameError("bad_target", "この相手には挑戦できません");
+          opt = { ch: { pub, name: t.pname, team: t.team, points: t.points } };
+        }
+        r = C.battleStart(S, now, rand, opt);
         if (r.forfeited !== null && hadPending) ff = { p: hadPending, pts: r.forfeited };
       }
       else if (a === "bfinish") r = C.battleFinish(S, now, p.plan);
+      else if (a === "trip") r = C.trip(S, now, rand);
+      else if (a === "name") r = C.setName(S, now, p.name);
+      else if (a === "lb") {
+        const rows = await tx`select pubid, pname, points from chizukan.players where pname is not null and not banned and points > 0 order by points desc, updated_at asc limit ${C.CFG.LB_SIZE}`;
+        const [{ n }] = await tx`select count(*)::int as n from chizukan.players where points > ${S.points} and pname is not null and not banned`;
+        r = { lb: rows.map((x, i) => ({ rk: i + 1, pub: x.pubid, n: x.pname, pts: x.points })), me: S.name ? n + 1 : null };
+      }
       else if (a === "reset") { const f = C.freshState(now); Object.keys(S).forEach(x => delete S[x]); Object.assign(S, f); }
       else if (a === "feedback") {
         const text = String(p.body || "").trim().slice(0, 1000);
@@ -87,11 +103,12 @@ export async function handle(req, deps) {
       }
       else return { status: 400, e: "bad_action", m: "unknown action" };
 
+      const newAch = a === "reset" ? [] : C.checkAch(S, now); if (newAch.length) r.ach = newAch;
       C.invariant(S);
       if (ff) await tx`insert into chizukan.battle_log (player_id, seed, team_a, team_b, plan, res, rounds, pts, rules_ver, forfeit) values (${id}, ${ff.p.seed}, ${ff.p.A}, ${ff.p.B}, ${tx.json([])}, -1, 0, ${ff.pts}, ${E.RULES_VERSION}, true)`;
-      if (a === "bfinish") { const h = r.entry; await tx`insert into chizukan.battle_log (player_id, seed, team_a, team_b, plan, res, rounds, pts, rules_ver) values (${id}, ${h.seed}, ${h.A}, ${h.B}, ${tx.json(h.pa)}, ${h.res}, ${h.rounds}, ${h.pts}, ${h.rv})`; delete r.entry; }
-      await tx`update chizukan.players set state = ${tx.json(S)}, updated_at = now(), last_seen = now(), win_start = ${inWin ? row.win_start : new Date(now)}, win_n = ${wn} where id = ${id}`;
-      return { status: 200, ok: true, s: C.view(S, now), r };
+      if (a === "bfinish") { const h = r.entry; await tx`insert into chizukan.battle_log (player_id, seed, team_a, team_b, plan, res, rounds, pts, rules_ver, mode) values (${id}, ${h.seed}, ${h.A}, ${h.B}, ${tx.json(h.pa)}, ${h.res}, ${h.rounds}, ${h.pts}, ${h.rv}, ${h.mode || "n"})`; delete r.entry; }
+      await tx`update chizukan.players set state = ${tx.json(S)}, points = ${S.points}, pname = ${S.name || null}, updated_at = now(), last_seen = now(), win_start = ${inWin ? row.win_start : new Date(now)}, win_n = ${wn} where id = ${id}`;
+      return { status: 200, ok: true, s: Object.assign(C.view(S, now), { pub: row.pubid }), r };
     });
     if (out.ok) return json({ ok: true, s: out.s, r: out.r });
     return err(out.e, out.m, out.status);
