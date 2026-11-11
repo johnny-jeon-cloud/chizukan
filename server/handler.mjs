@@ -76,6 +76,8 @@ export async function handle(req, deps) {
         let opt = {};
         if (p.mode === "boss") opt = { boss: true };
         else if (p.mode === "prac") opt = { prac: Number(p.lv) };
+        else if (p.mode === "arena") opt = { arena: true };
+        else if (p.mode === "brawl") opt = { brawl: true };
         else if (p.mode === "ch") {
           const pub = String(p.pub || "");
           if (!/^[0-9a-f]{10}$/.test(pub)) throw new C.GameError("bad_target", "この相手には挑戦できません");
@@ -91,6 +93,8 @@ export async function handle(req, deps) {
       else if (a === "name") r = C.setName(S, now, p.name);
       else if (a === "back") r = C.setBack(S, String(p.id));
       else if (a === "deck") r = C.setDeck(S, p.i);
+      else if (a === "guide") r = C.setGuide(S, p.id);
+      else if (a === "arena") r = p.op === "pick" ? C.arenaPick(S, p.i) : C.arenaStart(S, now, rand);
       else if (a === "lb") {
         const rows = await tx`select pubid, pname, points from chizukan.players where pname is not null and not banned and points > 0 order by points desc, updated_at asc limit ${C.CFG.LB_SIZE}`;
         const [{ n }] = await tx`select count(*)::int as n from chizukan.players where points > ${S.points} and pname is not null and not banned`;

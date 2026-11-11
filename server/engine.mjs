@@ -1,5 +1,5 @@
 // Chizukan 戦闘エンジン（規則 v0.7 候補）。HP×1・最大8回合・スキル（交代／防御／強攻）。
-const RULES_VERSION = "v1.0";
+const RULES_VERSION = "v1.1";
 const HP_MULT = 1;
 const MAX_ROUNDS = 8;
 const SKILL_USES = 3;
@@ -138,5 +138,37 @@ function battle(A, B, roll, hpMult = HP_MULT, cap = MAX_ROUNDS, plans = {}) {
   const res = Math.abs(fa - fb) < 1e-12 ? 0 : (fa > fb ? 1 : -1);
   return { rounds: cap, how: "t10", res, ha, hb, maxA, maxB, fa, fb, log, ua, ub };
 }
+// 向導（チームに1人。自分側だけに効く）
+const GUIDES = { sea: ["航海士", "前列のATK+8%"], city: ["建築家", "全員のDEF+10%"], mount: ["登山家", "全員のHP+6%"], hist: ["語り部", "後列のATK+10%・HP+10%"] };
+function applyGuide(cards, g) {
+  if (!GUIDES[g]) return cards;
+  return cards.map((c, i) => {
+    const o = Object.assign({}, c);
+    if (g === "sea" && i === 0) o.atk = roundHalfEven(c.atk * 1.08);
+    if (g === "city") o.def = roundHalfEven(c.def * 1.1);
+    if (g === "mount") o.hp = roundHalfEven(c.hp * 1.06);
+    if (g === "hist" && i === cards.length - 1) { o.atk = roundHalfEven(c.atk * 1.1); o.hp = roundHalfEven(c.hp * 1.1); }
+    return o;
+  });
+}
+// 今週の乱闘（両陣営に同じ特別ルール）
+const BRAWL_LIST = ["swap", "giant", "underdog", "mirror"];
+const BRAWLS = { swap: ["攻守逆転", "全カードのATKとDEFが入れ替わる"], giant: ["巨人の週", "全カードのHPが1.5倍"], underdog: ["小兵の逆襲", "Nカードの全能力+40%"], mirror: ["鏡合わせ", "相手はあなたと同じチーム（並びは逆）"] };
+function applyRule(cards, rule) {
+  return cards.map(c => {
+    const o = Object.assign({}, c);
+    if (rule === "swap") { o.atk = c.def; o.def = c.atk; }
+    if (rule === "giant") o.hp = roundHalfEven(c.hp * 1.5);
+    if (rule === "underdog" && c.rar === "N") { o.atk = roundHalfEven(c.atk * 1.4); o.hp = roundHalfEven(c.hp * 1.4); o.def = roundHalfEven(c.def * 1.4); }
+    return o;
+  });
+}
+// 対戦前の補正をまとめて適用: 地域連携 → 向導（自分側のみ）→ 乱闘ルール（両側）
+function prepTeams(A, B, opt) {
+  opt = opt || {};
+  let a = applyGuide(applySynergy(A), opt.g), b = applySynergy(B);
+  if (opt.rule) { a = applyRule(a, opt.rule); b = applyRule(b, opt.rule); }
+  return { A: a, B: b };
+}
 function teamPower(T) { return T.reduce((s, c) => s + c.atk + c.hp + c.def, 0); }
-export { kwFor, kwOf, KW_JP, KW_DESC, applySynergy, synText, traitOf, TRAIT_JP, TRAIT_DESC, battle, makeRoller, mulberry32, roundHalfEven, attrMult, teamPower, HP_MULT, MAX_ROUNDS, RULES_VERSION, SKILL_USES };
+export { GUIDES, BRAWLS, BRAWL_LIST, applyGuide, applyRule, prepTeams, kwFor, kwOf, KW_JP, KW_DESC, applySynergy, synText, traitOf, TRAIT_JP, TRAIT_DESC, battle, makeRoller, mulberry32, roundHalfEven, attrMult, teamPower, HP_MULT, MAX_ROUNDS, RULES_VERSION, SKILL_USES };
