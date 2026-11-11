@@ -8,7 +8,7 @@ import * as C from "./core.mjs";
 const db = new PGlite(); await db.exec("create role anon; create role authenticated;"); await db.exec(fs.readFileSync("schema.sql", "utf8"));
 const srv = new PGLiteSocketServer({ db, port: 54329, host: "127.0.0.1" }); await srv.start();
 const sql = postgres("postgres://postgres:postgres@127.0.0.1:54329/postgres", { max: 1, prepare: false, ssl: false, onnotice: () => {} });
-let T = Date.now() + 5000; let ip = "1.1.1.1";
+let T = (() => { const n = Date.now() + 5000, d = 864e5, j = 9 * 3600e3; let t = Math.floor((n + j) / d) * d - j + 3 * 3600e3; while (t < n) t += d; return t; })();; let ip = "1.1.1.1";
 const call = async (a, o = {}, extra = {}) => {
   const req = new Request("https://x/fn", { method: "POST", headers: { "x-forwarded-for": ip }, body: JSON.stringify({ a, ...o }) });
   const res = await handle(req, { sql, now: () => T, ...extra }); return { st: res.status, j: await res.json() };
@@ -25,7 +25,7 @@ assert.equal(r.j.s.packs, 0); r = await call("open", auth); assert.equal(r.j.e, 
 // 4時間後に +1
 T += 4 * 3600e3; r = await call("state", auth); assert.equal(r.j.s.packs, 1);
 // タスク報酬
-r = await call("claim", { ...auth, p: { k: "c1" } }); assert(r.j.ok); assert.equal(r.j.s.packs, 2); assert.equal((await call("claim", { ...auth, p: { k: "c1" } })).j.e, "cannot_claim");
+r = await call("claim", { ...auth, p: { k: "c1" } }); assert(r.j.ok, JSON.stringify(r.j)); assert.equal(r.j.s.packs, 2); assert.equal((await call("claim", { ...auth, p: { k: "c1" } })).j.e, "cannot_claim");
 // 編成・対戦
 const owned = Object.keys(r.j.s.owned).map(Number); assert(owned.length >= 3 || true);
 const st = (await call("state", auth)).j.s;

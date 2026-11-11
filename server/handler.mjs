@@ -88,6 +88,7 @@ export async function handle(req, deps) {
       else if (a === "bfinish") r = C.battleFinish(S, now, p.plan);
       else if (a === "trip") r = C.trip(S, now, rand);
       else if (a === "name") r = C.setName(S, now, p.name);
+      else if (a === "back") r = C.setBack(S, String(p.id));
       else if (a === "lb") {
         const rows = await tx`select pubid, pname, points from chizukan.players where pname is not null and not banned and points > 0 order by points desc, updated_at asc limit ${C.CFG.LB_SIZE}`;
         const [{ n }] = await tx`select count(*)::int as n from chizukan.players where points > ${S.points} and pname is not null and not banned`;
