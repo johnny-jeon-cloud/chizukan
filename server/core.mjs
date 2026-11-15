@@ -14,6 +14,7 @@ export const CFG = {
   DECKS: 3, TRACK_XP: 100, TRACK_MAX: 30, XP: { win: 30, play: 15, pack: 10, quest: 20, trip: 5 }, PRAC: [0.25, 0.55, 0.85],
   ARENA_WINS: 3, ARENA_LOSSES: 2, ARENA_REWARD: [{ packs: 0, mp: 3 }, { packs: 0, mp: 8 }, { packs: 0, mp: 15 }, { packs: 1, mp: 20 }], BRAWL_WIN: { packs: 1, mp: 10 },
   FRIENDS_MAX: 20, QUIZ_MP: { ok: 3, ng: 1 },
+  PICKUP: 0.25, AREA_ORDER: ["日本", "韓国", "中国", "台湾", "東南アジア"],
 };
 const JST = 9 * 3600e3;
 const SKILLS = new Set(["swap", "guard", "rush", "auto"]);
@@ -21,6 +22,8 @@ const SKILLS = new Set(["swap", "guard", "rush", "auto"]);
 export const CARDS = CARD_ROWS.map(r => ({ id: r[0], rar: r[1], attr: r[2], area: r[3], atk: r[4], hp: r[5], def: r[6], kw: E.kwFor(r[0], r[1]) }));
 export const BY_ID = Object.fromEntries(CARDS.map(c => [c.id, c]));
 const BYRAR = {}; CARDS.forEach(c => (BYRAR[c.rar] = BYRAR[c.rar] || []).push(c));
+// 今月のピックアップ地域（月替わり）。各カード抽選の PICKUP の確率で、その地域の同レア度から選ぶ
+export function pickupFor(sid) { const [y, m] = String(sid).split("-").map(Number); return CFG.AREA_ORDER[((y * 12 + m - 1 + 2) % CFG.AREA_ORDER.length + CFG.AREA_ORDER.length) % CFG.AREA_ORDER.length] || CFG.AREA_ORDER[0]; }
 
 export function cardsDigest() {
   return CARDS.map(c => `${c.id}:${c.rar}:${c.atk}:${c.hp}:${c.def}:${c.attr}:${c.area}`).join(";");
@@ -100,7 +103,7 @@ export function view(S, now) {
   return { packs: S.packs, lastGrant: S.lastGrant, pity: S.pity, mp: S.mp, owned: S.owned, team: S.team, points: S.points,
     day: S.day, battlesToday: S.battlesToday, tasks: S.tasks, history: S.history, stats: S.stats, pending: !!S.pending, now,
     name: S.name, ach: S.ach, boss: { done: S.boss.day === S.day, res: S.boss.day === S.day ? S.boss.res : null, ids: bossFor(S.day).ids },
-    trip: { done: S.trip.day === S.day, n: S.trip.n, last: S.trip.last }, season: { id: S.season.id, best: S.season.best, tier: rankOf(S.points), bestTier: rankOf(S.season.best), days: daysLeft(now) }, sLast: S.sLast, quests: questView(S), back: S.back, decks: S.decks, deckIdx: S.deckIdx, track: trackView(S), guide: S.guide, brawl: { rule: brawlFor(S.brawl.wk), won: S.brawl.won, reward: CFG.BRAWL_WIN }, arena: arenaView(S), friends: S.friends, quiz: quizView(S), use: S.use, ch: { n: S.ch.ids.length, max: CFG.CH_PER_DAY, ids: S.ch.ids } };
+    trip: { done: S.trip.day === S.day, n: S.trip.n, last: S.trip.last }, season: { id: S.season.id, best: S.season.best, tier: rankOf(S.points), bestTier: rankOf(S.season.best), days: daysLeft(now) }, sLast: S.sLast, quests: questView(S), back: S.back, decks: S.decks, deckIdx: S.deckIdx, track: trackView(S), guide: S.guide, brawl: { rule: brawlFor(S.brawl.wk), won: S.brawl.won, reward: CFG.BRAWL_WIN }, arena: arenaView(S), friends: S.friends, pickup: { area: pickupFor(S.season.id || jstDay(now).slice(0, 7)), p: CFG.PICKUP }, quiz: quizView(S), use: S.use, ch: { n: S.ch.ids.length, max: CFG.CH_PER_DAY, ids: S.ch.ids } };
 }
 
 function daysLeft(now) { const d = new Date(now + JST), y = d.getUTCFullYear(), m = d.getUTCMonth(); return Math.round((Date.UTC(y, m + 1, 1) - Date.UTC(y, m, d.getUTCDate())) / 864e5); }
@@ -227,8 +230,10 @@ export function openPack(S, now, rand) {
   const gold = S.pity >= CFG.GOLD_N - 1;
   if (gold && !hasHigh) rars[CFG.PACK_SIZE - 1] = rand() * (CFG.RATES.SR + CFG.RATES.SSR) < CFG.RATES.SR ? "SR" : "SSR";
   S.pity = gold ? 0 : S.pity + 1;
+  const pu = pickupFor(S.season.id || jstDay(now).slice(0, 7));
   const cards = rars.map(r => {
-    const c = pick(BYRAR[r], rand), isNew = !S.owned[c.id];
+    const pool = rand() < CFG.PICKUP ? BYRAR[r].filter(x => x.area === pu) : [];
+    const c = pick(pool.length ? pool : BYRAR[r], rand), isNew = !S.owned[c.id];
     S.owned[c.id] = (S.owned[c.id] || 0) + 1;
     const pts = isNew ? 0 : CFG.DUP_PTS[c.rar]; S.mp += pts;
     return { id: c.id, isNew, pts };
@@ -363,8 +368,10 @@ export function runBattle(A, B, seed, plan, opt) {
   return E.battle(ta, tb, E.makeRoller(seed), E.HP_MULT, E.MAX_ROUNDS, { a: plan, b: "auto" });
 }
 
-export function battleFinish(S, now, plan) {
+export function battleFinish(S, now, plan, order) {
   const p = S.pending; if (!p) fail("no_battle", "進行中の対戦がありません");
+  // 先鋒の選び直し: order は [0,1,2] の並べ替え。向導の前列・後列はこの並びで決まる
+  if (Array.isArray(order) && order.length === 3 && order.slice().sort().join() === "0,1,2") p.A = order.map(i => p.A[i]);
   const pa = cleanPlan(plan), res = runBattle(p.A, p.B, p.seed, pa, { g: p.g, rule: p.rule }), mode = p.mode || "n";
   S.pending = null;
   const p0 = S.points; let pts = 0, reward = null;

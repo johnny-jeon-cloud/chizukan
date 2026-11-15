@@ -95,7 +95,7 @@ export async function handle(req, deps) {
         r = C.battleStart(S, now, rand, opt);
         if (r.forfeited !== null && hadPending) ff = { p: hadPending, pts: r.forfeited };
       }
-      else if (a === "bfinish") r = C.battleFinish(S, now, p.plan);
+      else if (a === "bfinish") r = C.battleFinish(S, now, p.plan, p.order);
       else if (a === "trip") r = C.trip(S, now, rand);
       else if (a === "name") r = C.setName(S, now, p.name);
       else if (a === "back") r = C.setBack(S, String(p.id));
