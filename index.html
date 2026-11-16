@@ -478,6 +478,34 @@ table.t th{font-weight:600;color:var(--ink2)}
 .stg .ctl:empty{display:none}
 .stg .ctl button{color:#2a1a0e;border:2px solid #5a3d10;background:linear-gradient(180deg,#f7e3a0,#e2bd62 38%,#a97a2a 72%,#6e4c16);box-shadow:inset 0 2px 0 rgba(255,255,255,.6),inset 0 -3px 5px rgba(0,0,0,.3),0 3px 0 #3a2608;padding:8px 13px;font-size:12.5px}
 .stg .ctl button.on{box-shadow:0 0 0 3px #7dffb0,0 0 12px 3px rgba(90,255,160,.6),inset 0 2px 0 rgba(255,255,255,.6)}
+
+/* --- 素材版カード（v20）：小さいカードは金属の枠・裏面は紋章 --- */
+.card .frm{display:none}
+.card.mini{aspect-ratio:360/586;background:none;border-radius:6.5cqw;box-shadow:none;color:#fff}
+.card.mini.SR,.card.mini.SSR{box-shadow:none}
+.card.mini .bgp,.card.mini .fr,.card.mini .fr2,.card.mini .cnr,.card.mini .hdr{display:none}
+.card.mini .frm{display:block;position:absolute;inset:0;z-index:5;pointer-events:none;background:url(ui_frame_N.webp) center/100% 100% no-repeat}
+.card.mini.R .frm{background-image:url(ui_frame_R.webp)}.card.mini.SR .frm{background-image:url(ui_frame_SR.webp)}.card.mini.SSR .frm{background-image:url(ui_frame_SSR.webp)}
+.card.mini .plate{left:11cqw;right:11cqw;top:14cqw;height:95cqw;border:0}
+.card.mini .plate::before{display:none}
+.card.mini .ttl{top:101.5cqw;left:13cqw;right:13cqw;height:14cqw;display:flex;align-items:center;justify-content:center;z-index:6}
+.card.mini .ttl .jp{color:#fff;letter-spacing:.02em;text-shadow:-1px -1px 0 #1a0e06,1px -1px 0 #1a0e06,-1px 1px 0 #1a0e06,1px 1px 0 #1a0e06,0 2px 2px rgba(0,0,0,.7);overflow:visible}
+.card.mini .stats{display:block;left:0;right:0;top:0;bottom:0;z-index:6;pointer-events:none}
+.card.mini .dl{position:absolute;top:139.5cqw;width:16cqw;height:16cqw;justify-content:center;border-radius:50%}
+.card.mini .dl:nth-child(1){left:5.5cqw;background:radial-gradient(circle at 35% 30%,#ffd76a,#c9820e)}
+.card.mini .dl:nth-child(2){right:5.5cqw;background:radial-gradient(circle at 35% 30%,#ff8a7a,#b3261c)}
+.card.mini .dl:nth-child(3){left:50%;margin-left:-9cqw;width:18cqw;top:136cqw;height:auto;border-radius:0}
+.card.mini .dl b{font:800 9.5cqw/1 var(--sans);color:#fff;text-shadow:-1px -1px 0 #1a0e06,1px -1px 0 #1a0e06,-1px 1px 0 #1a0e06,1px 1px 0 #1a0e06}
+.card.mini .dl small{display:none}
+.card.mini .dl:nth-child(3) small{display:block;font-size:4.6cqw;color:#f2e4bd;letter-spacing:.12em;margin:0 0 .6cqw;order:-1;text-shadow:0 1px 1px #000}
+.card.mini .dl:nth-child(3) b{font-size:8.5cqw}
+.flip .in{aspect-ratio:360/586}
+.flip .b{border:0;border-radius:0;background:url(ui_cardback.webp) center/contain no-repeat;filter:drop-shadow(0 5px 6px rgba(0,0,0,.5))}
+.flip .b svg,.flip .b small{display:none}
+.packart.bk-default{border:0;border-radius:0;box-shadow:none;background:url(ui_cardback.webp) center/contain no-repeat;aspect-ratio:1608/2229;width:168px;filter:drop-shadow(0 0 14px rgba(232,180,58,.75)) drop-shadow(0 6px 8px rgba(0,0,0,.45))}
+.packart.gold.bk-default{filter:drop-shadow(0 0 10px #fff2a8) drop-shadow(0 0 22px rgba(255,200,60,1)) drop-shadow(0 6px 8px rgba(0,0,0,.45))}
+.packart.bk-default .pk-in svg,.packart.bk-default .pk-in b,.packart.bk-default .pk-in small{display:none}
+.stg .ac{width:min(34vw,13.6vh)}
 </style>
 </head>
 <body>
@@ -942,11 +970,11 @@ function cardHTML(c, mini, style) {
   const ac = { '日本': 'jp', '韓国': 'kr', '中国': 'cn', '台湾': 'tw', '東南アジア': 'sea' }[c.area] || 'jp';
   const own = (S.owned && S.owned[c.id]) || 0, foil = own >= 6 ? ' foil foil2' : own >= 3 ? ' foil' : '';
   return `<div class="card ${c.rar} ar-${ac}${mini ? ' mini' : ''}${foil}" data-attr="${c.attr}">
-  <div class="bgp"></div><div class="fr"></div><div class="fr2"></div>${c.rar === 'N' ? '' : '<i class="cnr c1"></i><i class="cnr c2"></i><i class="cnr c3"></i><i class="cnr c4"></i>'}
+  <div class="bgp"></div><div class="fr"></div><div class="fr2"></div><i class="frm"></i>${c.rar === 'N' ? '' : '<i class="cnr c1"></i><i class="cnr c2"></i><i class="cnr c3"></i><i class="cnr c4"></i>'}
   <div class="hdr"><span class="no">No. ${no}</span><span class="kd">${kind}</span><span class="seal">${c.rar}</span></div>
   <div class="plate${ink ? ' ink' : ''}${paint ? ' paint' : ''}">${PHOTOS.indexOf(c.id) >= 0 ? `<img class="photo" src="cards/card_${no}.jpg" alt="${esc(c.name)}" loading="lazy">` : ''}${paint ? `<img src="${IMGS[c.id]}" alt="">` : ink ? artInkSVG(c) : artSVG(c)}${ink ? `<span class="seal2">${AK[c.attr] || ''}</span>` : ''}<span class="ar">${c.area}</span>${traitOf(c) ? `<span class="tr t-${traitOf(c)}">${TRAIT_JP[traitOf(c)]}</span>` : ''}${c.kw ? `<span class="kw k-${c.kw}">${KW_JP[c.kw]}</span>` : ''}<span class="at">${AK[c.attr] || ''}</span></div>
   <div class="coord"><span>${co[0]}</span><span>── ${c.attr} ──</span><span>${co[1]}</span></div>
-  <div class="ttl"><div class="jp" style="font-size:${(Math.min(11.3, 70 / [...c.name].length) * (mini ? 1.15 : 1)).toFixed(1)}cqw">${esc(c.name)}</div><div class="en">${esc(EN[c.id] || '')}</div></div>
+  <div class="ttl"><div class="jp" style="font-size:${(Math.min(11.3, 70 / [...c.name].length) * (mini ? .82 : 1)).toFixed(1)}cqw">${esc(c.name)}</div><div class="en">${esc(EN[c.id] || '')}</div></div>
   <div class="orn"><i></i><b></b><i></i></div><div class="dsc">${esc(c.desc)}</div>
   <div class="stats">${dials}</div></div>`;
 }
@@ -1477,7 +1505,7 @@ function viewPack() {
     <div>${label}<div class="muted">${prog}</div></div>
     ${claimed ? '<span class="pill">受取済</span>' : `<button class="btn sm" data-a="claim" data-k="${key}" ${ok ? '' : 'disabled'}>+1パック</button>`}</div>`;
   return `${tutorialHTML()}<div class="hero">
-    <div class="packart ${S.back && S.back !== 'default' ? 'bk-' + S.back : ''} ${nextGold ? 'gold' : ''}" data-a="open"><div class="pk-in">${BACK_SVG}<b>${nextGold ? 'GOLD PACK' : 'CHIZUKAN'}</b><small>${nextGold ? 'SR以上 確定' : '地図鑑パック'}</small></div></div>
+    <div class="packart ${S.back && S.back !== 'default' ? 'bk-' + S.back : 'bk-default'} ${nextGold ? 'gold' : ''}" data-a="open"><div class="pk-in">${BACK_SVG}<b>${nextGold ? 'GOLD PACK' : 'CHIZUKAN'}</b><small>${nextGold ? 'SR以上 確定' : '地図鑑パック'}</small></div></div>
     <button class="btn" data-a="open" ${S.packs > 0 ? '' : 'disabled'}>${S.packs > 0 ? 'パックを開ける' : 'パック待ち…'}</button>
     <div class="pips">${pips}</div>
     <div class="muted" style="text-align:center">${S.packs}/${STOCK_CAP}　${nextGetText()}</div>
