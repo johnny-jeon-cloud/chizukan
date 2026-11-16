@@ -1356,7 +1356,9 @@ function shareHTML() {
 
 /* --- ログイン（メール／Google）：進行状況をログインに結びつける --- */
 const SB_URL = 'https://zfdwoblwjonxzxebjouu.supabase.co', SB_KEY = 'sb_publishable_LXcS9JHwwh-Uy64z3MFIiQ_-tp0KmQX';
-const LG = { email: '', sent: false, msg: '', busy: false, tok: '', need: false };
+const LG = { email: '', sent: false, msg: '', busy: false, tok: '', need: false, google: false };
+// Google ログインは、認証サービス側で有効になっているときだけボタンを出す
+fetch(SB_URL + '/auth/v1/settings', { headers: { apikey: SB_KEY } }).then(r => r.json()).then(j => { LG.google = !!(j && j.external && j.external.google); if (LG.google && typeof UI !== 'undefined' && UI.tab === 'info') render(); }).catch(() => {});
 const loginBack = () => location.origin + location.pathname;
 async function sbAuth(path, body) {
   let res, j = {};
@@ -1416,7 +1418,7 @@ function loginBoxHTML() {
    ${LG.sent ? `<p style="margin-top:10px">${esc(LG.email)} にメールを送りました。<b>メールのリンクをこのブラウザで開く</b>か、メールに番号が書かれている場合は下に入力してください。</p>
    <input class="codebox" id="lgcode" inputmode="numeric" autocomplete="one-time-code" placeholder="メールの番号" style="min-height:0;font:16px var(--sans);padding:9px;letter-spacing:.2em">
    <button class="btn sub" style="margin-top:8px" data-a="lgcode">番号でログイン</button>` : ''}
-   <button class="btn sub" style="margin-top:8px" data-a="lggoogle">Google でログイン</button>
+   ${LG.google ? '<button class="btn sub" style="margin-top:8px" data-a="lggoogle">Google でログイン</button>' : ''}
    <div class="muted" style="color:var(--red);min-height:16px;margin-top:6px">${esc(LG.msg)}</div>`;
 }
 
