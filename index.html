@@ -546,6 +546,33 @@ nav.tabs button.vs.on{filter:drop-shadow(0 0 8px rgba(255,214,110,1)) drop-shado
 .btn:active{transform:translateY(2px);box-shadow:inset 0 2px 0 rgba(255,255,255,.6),0 1px 0 #3a2608}
 .btn.sub{background:linear-gradient(180deg,#fffaf0,#efe4cb);color:var(--ink);border-color:#8a6a2c;box-shadow:0 3px 0 #b9a577}
 .btn.sm{box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 0 #3a2608}
+
+/* --- 全体の統一（v22）：暗い木の地に羊皮紙の板、カードは長方形 --- */
+.card.mini{border-radius:7%/4.3%}
+html,body{background:#17100a}
+body{background:#17100a radial-gradient(ellipse at 50% 0,#3a2413 0,#1d130b 55%,#120b06 100%) fixed;color:#f2e4bd}
+main{color:#f2e4bd}
+#app{background:#1b120b radial-gradient(ellipse at 50% 0,#3a2413 0,#1d130b 420px,#150d07 100%)}
+.chip,.pill{color:var(--ink)}
+.fl button,.filters button{background:linear-gradient(180deg,#fffaf0,#efe4cb);border:1px solid #8a6a2c;color:var(--ink)}
+.fl button.on,.filters button.on{background:linear-gradient(180deg,#f7e3a0,#e2bd62 45%,#a97a2a);color:#2a1a0e;border-color:#5a3d10;box-shadow:inset 0 1px 0 rgba(255,255,255,.6)}
+.areabox{background:linear-gradient(180deg,#f8eed6,#eadcb8);border-color:#8a6a2c;color:var(--ink);border-radius:8px}
+.empty{border-color:#c9b98f;color:#c9b98f;aspect-ratio:360/586}
+.prog{border-color:#8a6a2c;background:#2a1a0e}
+.box .fl button,.panel .fl button{background:rgba(255,252,243,.8)}
+h2{color:#f3d98a}h2::after{background:#e2bd62;opacity:.55}
+h3{color:#f3d98a}
+.muted{color:#c9b98f}
+.box,.ov .panel,.tut .tb{background:linear-gradient(180deg,#f8eed6,#eadcb8);border:2px solid #8a6a2c;border-radius:10px;color:var(--ink);box-shadow:0 0 0 1px #e2bd62 inset,0 4px 8px rgba(0,0,0,.4)}
+.box .muted,.panel .muted,.tb .muted,.box h3,.panel h3,.tb h3{color:var(--ink2)}
+.box h3,.panel h3,.tb h3{color:var(--ink)}
+.slot .lab{color:#d9c999}
+.dcard{width:62%;max-width:230px;margin:2px auto 8px}
+.facts{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:0 0 6px;font:600 12px var(--sans)}
+.facts span{padding:2px 9px;border:1px solid #8a6a2c;border-radius:12px;background:rgba(255,252,243,.7)}
+.facts.st span{border-color:#5a3d10;background:linear-gradient(180deg,#f7e3a0,#e2bd62)}.facts.st b{font:800 14px var(--serif)}
+.facts.co{font:italic 500 12px var(--serif);color:var(--ink2)}
+.detail .card.back{border-radius:8px}
 </style>
 </head>
 <body>
@@ -1727,6 +1754,11 @@ function exchHTML() {
     <button class="btn" data-a="exch" data-k="${c.id}" ${ok ? '' : 'disabled'}>${ok ? 'このカードと交換する' : 'ポイントが足りません'}</button>
     <button class="btn sub" style="margin-top:8px" data-a="closeexch">閉じる</button></div></div></div>`;
 }
+function factsHTML(c) {
+  const co = COORD[c.id] || ['', ''], no = String(c.id).padStart(2, '0');
+  return `<div class="facts"><span>No. ${no}</span><span>${c.rar}</span><span>${c.type === 'city' ? '都市' : '名所'}</span><span>${c.area}</span><span>${c.attr}</span></div>
+  <div class="facts st"><span>ATK <b>${c.atk}</b></span><span>HP <b>${c.hp}</b></span><span>DEF <b>${c.def}</b></span></div>${co[0] ? `<div class="facts co">${co[0]}　${co[1]}</div>` : ''}`;
+}
 function cardBackHTML(c) {
   const co = COORD[c.id] || ['', ''], no = String(c.id).padStart(2, '0'), kind = c.type === 'city' ? '都市カード' : '名所カード';
   const q = encodeURIComponent(c.name.replace(/（.*?）/g, ''));
@@ -1741,7 +1773,7 @@ function detailHTML() {
   const c = UI.detail !== null ? BY_ID[UI.detail] : null; if (!c) return '';
   const beats = BEAT[c.attr], beatenBy = Object.keys(BEAT).find(k => BEAT[k] === c.attr);
   return `<div class="ov" data-a="closedetail"><div class="sheet" data-a="noop"><div class="panel detail">
-    ${UI.back ? cardBackHTML(c) : cardHTML(c, false)}
+    ${UI.back ? cardBackHTML(c) : `<div class="dcard">${cardHTML(c, true)}</div>${factsHTML(c)}`}
     <button class="btn sub sm" data-a="flipback" style="margin:0 auto 10px;display:block">${UI.back ? '表面にもどる' : '裏面を見る（出典）'}</button>
     <div class="dt"><p>${esc(c.desc)}</p><div class="fl">${esc(c.flavor)}</div>${quoteOf(c) ? `<div class="fl" style="margin-top:6px">${esc(quoteOf(c))}<div class="muted" style="font-size:11px">※台詞はゲーム用の創作です</div></div>` : ''}
     <p class="muted">所持：${S.owned[c.id] || 0}枚　戦闘HP：${c.hp * HP_MULT}${traitOf(c) ? `<br>特性「${TRAIT_JP[traitOf(c)]}」：${TRAIT_DESC[traitOf(c)]}` : ''}${c.kw ? `<br>特技「${KW_JP[c.kw]}」：${KW_DESC[c.kw]}` : ''}<br>属性「${c.attr}」は「${beats}」に有利、「${beatenBy}」に不利。</p></div>
