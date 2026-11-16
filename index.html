@@ -732,12 +732,14 @@ function sendTeam() {
 }
 async function boot() {
   NET.ready = false; NET.err = ''; render();
+  const ltok = loginFromHash();
   try {
     ACCT = loadAcct();
     if (!ACCT) { const j = await api('register'); ACCT = { id: j.id, k: j.k }; saveAcct(); await api('state'); }
     else { const j = await api('state'); if (j.r && 'forfeited' in j.r) setTimeout(() => toast('対戦の途中で中断したため、敗北として記録しました'), 600); }
     NET.ready = true;
   } catch (e) { NET.err = e.code || 'server'; NET.msg = e.message; }
+  if (ltok) await loginWith(ltok);
   if (NET.ready && !S.tutDone) UI.tut = 0;
   render();
   if (NET.ready) openReplayLink();
@@ -1352,6 +1354,72 @@ function shareHTML() {
     <button class="btn sub" style="margin-top:8px" data-a="closeshare">閉じる</button></div></div></div>`;
 }
 
+/* --- ログイン（メール／Google）：進行状況をログインに結びつける --- */
+const SB_URL = 'https://zfdwoblwjonxzxebjouu.supabase.co', SB_KEY = 'sb_publishable_LXcS9JHwwh-Uy64z3MFIiQ_-tp0KmQX';
+const LG = { email: '', sent: false, msg: '', busy: false, tok: '', need: false };
+const loginBack = () => location.origin + location.pathname;
+async function sbAuth(path, body) {
+  let res, j = {};
+  try { res = await fetch(SB_URL + '/auth/v1/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY }, body: JSON.stringify(body) }); try { j = await res.json(); } catch (e) {} }
+  catch (e) { throw new Error('通信できませんでした。電波の良い場所でもう一度お試しください'); }
+  if (!res.ok) throw Object.assign(new Error('auth'), { status: res.status });
+  return j;
+}
+function loginFromHash() {
+  const h = location.hash || '', m = /[#&]access_token=([^&]+)/.exec(h), er = /[#&]error(_description)?=/.test(h);
+  if (!m && !er) return '';
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  if (!m) { LG.msg = 'ログインできませんでした。もう一度お試しください'; return ''; }
+  return decodeURIComponent(m[1]);
+}
+async function loginWith(tok, sw) {
+  if (LG.busy) return; LG.busy = true; LG.msg = '';
+  try {
+    const body = { a: 'login', p: { t: tok, sw: !!sw } }; if (ACCT) { body.id = ACCT.id; body.k = ACCT.k; }
+    let j;
+    try { j = await (await fetch(API_URL + '-auth', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body) })).json(); }
+    catch (e) { LG.msg = '通信できませんでした。電波の良い場所でもう一度お試しください'; return; }
+    if (!j || !j.ok) { LG.msg = j && j.e === 'no_account' ? 'このログインで保存された進行状況はまだありません。「新しく始める」のあとでログインしてください' : (j && j.m) || 'ログインできませんでした'; return; }
+    if (j.need === 'switch') { LG.tok = tok; LG.need = true; return; }
+    LG.tok = ''; LG.need = false; LG.sent = false;
+    if (j.k) ACCT = { id: j.id, k: j.k, ln: true }; else if (ACCT) ACCT.ln = true;
+    saveAcct();
+    try { await api('state'); } catch (e) { LG.msg = e.message; return; }
+    NET.ready = true; NET.err = '';
+    toast(j.mode === 'linked' ? 'ログインしました。この進行状況がログインに保存されます' : 'ログインしました');
+  } finally { LG.busy = false; render(); }
+}
+async function loginSend() {
+  const el = $('lgmail'), em = String(el ? el.value : LG.email).trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { LG.msg = 'メールアドレスを確かめてください'; render(); return; }
+  if (LG.busy) return; LG.busy = true; LG.email = em; LG.msg = ''; render();
+  try { await sbAuth('otp?redirect_to=' + encodeURIComponent(loginBack()), { email: em, create_user: true }); LG.sent = true; }
+  catch (e) { LG.msg = e.status === 429 ? 'メールの送信回数が上限に達しました。しばらく待ってからお試しください' : e.status ? 'メールを送れませんでした。しばらく待ってからお試しください' : e.message; }
+  finally { LG.busy = false; render(); }
+}
+async function loginCode() {
+  const el = $('lgcode'), code = String(el ? el.value : '').replace(/\D/g, '');
+  if (code.length < 6) { LG.msg = 'メールに書かれた番号を入力してください'; render(); return; }
+  let j;
+  try { j = await sbAuth('verify', { type: 'email', email: LG.email, token: code }); }
+  catch (e) { LG.msg = e.status ? '番号が正しくないか、期限が切れています' : e.message; render(); return; }
+  if (j && j.access_token) await loginWith(j.access_token);
+}
+function loginGoogle() { location.href = SB_URL + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(loginBack()); }
+function loginBoxHTML() {
+  if (LG.need) return `<p><b>このログインには、別の進行状況が保存されています。</b>切り替えると、いまこの端末にある進行状況は、引き継ぎコードを控えていないかぎり戻せません。</p>
+   <button class="btn" data-a="lgswitch">保存されている進行状況に切り替える</button><button class="btn sub" style="margin-top:8px" data-a="lgcancel">やめる（いまのまま続ける）</button>`;
+  if (NET.ready && (S.ln || (ACCT && ACCT.ln))) return `<p><b>ログイン済みです。</b>別の端末でも同じメールアドレスまたは Google でログインすると、この進行状況の続きから遊べます。</p><p class="muted">別の端末でログインすると、それまで使っていた端末ではもう一度ログインが必要になります。</p>`;
+  return `<p>メールアドレスか Google でログインすると、機種を変えたりブラウザのデータを消したりしても、ログインするだけで進行状況を戻せます。ログインしなくても遊べます。</p>
+   <input class="codebox" id="lgmail" type="email" inputmode="email" autocomplete="email" placeholder="メールアドレス" value="${esc(LG.email)}" style="min-height:0;font:14px var(--sans);padding:9px">
+   <button class="btn sub" style="margin-top:8px" data-a="lgsend">${LG.busy ? '送信中…' : LG.sent ? 'メールをもう一度送る' : 'ログイン用のメールを送る'}</button>
+   ${LG.sent ? `<p style="margin-top:10px">${esc(LG.email)} にメールを送りました。<b>メールのリンクをこのブラウザで開く</b>か、メールに番号が書かれている場合は下に入力してください。</p>
+   <input class="codebox" id="lgcode" inputmode="numeric" autocomplete="one-time-code" placeholder="メールの番号" style="min-height:0;font:16px var(--sans);padding:9px;letter-spacing:.2em">
+   <button class="btn sub" style="margin-top:8px" data-a="lgcode">番号でログイン</button>` : ''}
+   <button class="btn sub" style="margin-top:8px" data-a="lggoogle">Google でログイン</button>
+   <div class="muted" style="color:var(--red);min-height:16px;margin-top:6px">${esc(LG.msg)}</div>`;
+}
+
 /* ---------- 多言語（日本語／中文／English）：表示された日本語を辞書で置き換える ---------- */
 const LANGS = { ja: '日本語', zh: '中文', en: 'English' };
 const LKEY = 'chizukan_lang_v1';
@@ -1520,9 +1588,11 @@ function viewInfo() {
   <div class="box dt"><p>エリア表示（日本・韓国・中国・台湾・東南アジア）は分類のための便宜的な区分で、特定の立場を示すものではありません。台湾は「台湾」とのみ表記します。</p></div>
   <h2>仮置きの仕様</h2>
   <div class="box dt muted">パック枚数、${GRANT_MIN / 60}時間ごとの付与、ストック上限${STOCK_CAP}、確率、金パックの周期、地図ポイントの換算、勝利+12／敗北−6ポイント、1日${DAILY_BATTLES}戦は、企画書に具体値がないため原型用に決めた値です。付与時刻・乱数・対戦結果はすべてサーバー側で管理しています。</div>
+  <h2>ログイン</h2>
+  <div class="box dt">${loginBoxHTML()}</div>
   <h2>データの保護</h2>
   <div class="box dt">
-   <p>進行状況はサーバーに保存されます。登録は不要で、この端末には匿名のアカウント鍵だけが保存されます。<b>ブラウザのデータを消す・機種を変える前に、引き継ぎコードを控えてください。</b>引き継ぎコードは合鍵と同じなので、他の人には見せないでください。</p>
+   <p>進行状況はサーバーに保存されます。登録しなくても遊べ、その場合この端末には匿名のアカウント鍵だけが保存されます。ログインしていない場合は、<b>ブラウザのデータを消す・機種を変える前に、引き継ぎコードを控えてください。</b>引き継ぎコードは合鍵と同じなので、他の人には見せないでください。</p>
    <button class="btn sub" data-a="showacct">引き継ぎコードを表示</button>
    <textarea class="codebox" id="xcode" readonly style="${UI.xcode ? 'display:block;' : 'display:none;'}margin-top:8px">${esc(UI.xcode || '')}</textarea>
    <p style="margin-top:12px"><b>コードから引き継ぐ</b>（いまの端末の進行状況は、コードを控えていないと戻せません）</p>
@@ -1535,7 +1605,7 @@ function viewInfo() {
   <h2>遊び方・規約</h2>
   <div class="box dt"><button class="btn sub" data-a="tutshow">はじめてのガイドをもう一度見る</button>
    <p style="margin-top:10px"><b>非公式・無関係について</b>：このゲームは個人が制作した非公式のものです。登場する都市・施設・団体・自治体・企業とは一切関係がなく、各所の名称・事実は紹介のために用いています。カードの能力値は遊びのための相対的な値で、実際の優劣や評価を示すものではありません。</p>
-   <p><b>プライバシー</b>：氏名・メールアドレス・位置情報は取得せず、広告や解析ツールも使っていません。進行状況（所持カード・ポイント・対戦記録）は、ランダムな匿名のアカウントIDに紐づけてサーバーに保存されます。不正対策として、アクセス元のIPアドレスは元に戻せない形（ハッシュ）に変換して保管します。下の「報告を送る」を使うと、入力した本文・ブラウザの種類・規則バージョンが制作者に届きます。進行状況は「リセット」で初期化できます。アカウントの削除を希望する場合は X の @JohnnyJeon までご連絡ください。</p>
+   <p><b>プライバシー</b>：位置情報は取得せず、広告や解析ツールも使っていません。ログインしない場合、氏名・メールアドレスは取得しません。メールまたは Google でログインした場合にかぎり、本人確認のためにメールアドレス（Google の場合は Google アカウントの名前・画像を含む基本情報）が認証サービス（Supabase）に保存されます。ゲームの記録にはログインの識別番号だけを結びつけ、メールアドレスは対戦・ランキングなどに表示しません。進行状況（所持カード・ポイント・対戦記録）は、ランダムな匿名のアカウントIDに紐づけてサーバーに保存されます。不正対策として、アクセス元のIPアドレスは元に戻せない形（ハッシュ）に変換して保管します。下の「報告を送る」を使うと、入力した本文・ブラウザの種類・規則バージョンが制作者に届きます。進行状況は「リセット」で初期化できます。アカウントの削除を希望する場合は X の @JohnnyJeon までご連絡ください。</p>
    <p><b>ご利用について</b>：無料でお楽しみいただけます。課金・カードの売買・交換機能はありません。内容や仕様は予告なく変更することがあり、保存データを保証するものではありません。不具合による損害について、制作者は責任を負いません。</p>
   </div>
   <div class="box"><p><b>不具合・ご感想を送る</b></p><p class="muted">制作者に直接届きます（返信はできません。お返事が必要な場合は X の <b>@JohnnyJeon</b> へ）。1日5件まで。</p>
@@ -1767,6 +1837,7 @@ function bootHTML() {
   if (NET.err === 'auth') return `<div class="proto">公開テスト版</div><div style="padding:40px 20px"><h2>アカウントを確認できません</h2><p class="muted">保存されている鍵が無効です。引き継ぎコードがあれば入力してください。</p>
     <textarea class="codebox" id="icode" placeholder="CZA1. で始まるコードを貼り付け" style="display:block">${esc(UI.icode || '')}</textarea><div class="muted" style="color:var(--red);min-height:16px">${esc(UI.imsg || '')}</div>
     <button class="btn" data-a="doimport">コードで引き継ぐ</button>
+    <div class="box dt" style="margin-top:14px"><b>ログインで戻す</b>${loginBoxHTML()}</div>
     <button class="btn sub" style="margin-top:10px" data-a="newacct">${UI.newArmed ? '本当に新しく始める（元の進行状況は戻せません）' : '新しく始める'}</button></div>`;
   return `<div class="proto">公開テスト版</div><div style="padding:60px 20px;text-align:center"><h2>通信できませんでした</h2><p class="muted">${esc(NET.msg || '')}</p><button class="btn" data-a="retry">もう一度試す</button></div>`;
 }
@@ -1784,7 +1855,7 @@ function render() {
 }
 
 /* ---------- 操作 ---------- */
-document.addEventListener('input', e => { if (!e.target) return; if (e.target.id === 'icode') { UI.icode = e.target.value; UI.imsg = ''; } else if (e.target.id === 'fbbody') UI.fbbody = e.target.value; else if (e.target.id === 'namein') UI.namein = e.target.value; });
+document.addEventListener('input', e => { if (!e.target) return; if (e.target.id === 'icode') { UI.icode = e.target.value; UI.imsg = ''; } else if (e.target.id === 'lgmail') LG.email = e.target.value; else if (e.target.id === 'fbbody') UI.fbbody = e.target.value; else if (e.target.id === 'namein') UI.namein = e.target.value; });
 document.addEventListener('click', e => {
   SFX.init();
   const t = e.target.closest('[data-a]'); if (!t) return;
@@ -1833,6 +1904,11 @@ document.addEventListener('click', e => {
   else if (a === 'prac') startBattle(null, 'prac', k);
   else if (a === 'lead') { const b = UI.battle; if (b && b.pick) pickLead(+k); }
   else if (a === 'bauto') setAuto(!UI.auto)
+  else if (a === 'lgsend') loginSend()
+  else if (a === 'lgcode') loginCode()
+  else if (a === 'lggoogle') loginGoogle()
+  else if (a === 'lgswitch') loginWith(LG.tok, true)
+  else if (a === 'lgcancel') { LG.need = false; LG.tok = ''; render(); }
   else if (a === 'afight') startBattle(null, 'arena');
   else if (a === 'frfight') startBattle(null, 'fr', k);
   else if (a === 'fradd') { const el = $('frin'), v = (el ? el.value : '').trim().toLowerCase(); act('friend', { op: 'add', pub: v }).then(r => { if (r && r.friends) { UI.fr = r.friends; toast('友だちを登録しました'); } render(); }); }
